@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: sans-serif; margin: 15px; background-color: #f8f9fa; color: #3c4043; }
+      h3 { color: #1a73e8; margin-bottom: 20px; } 
+      label { display: block; margin-bottom: 8px; font-weight: 500; color: #5f6368; }
+      input[type="text"] {
+        width: calc(100% - 20px);
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #dadce0;
+        border-radius: 4px;
+        box-sizing: border-box;
+        font-size: 14px;
+      }
+      input[type="text"]:focus {
+        border-color: #1a73e8;
+        outline: none;
+        box-shadow: 0 0 0 1px #1a73e8;
+      }
+      .button-group { text-align: right; margin-top: 20px; }
+      button {
+        padding: 10px 20px;
+        margin-left: 10px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background-color 0.3s ease; 
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      button.primary { background-color: #1a73e8; color: white; }
+      button.primary:hover:not(:disabled) { background-color: #174ea6; }
+      button.secondary { background-color: #e8eaed; color: #3c4043; }
+      button.secondary:hover:not(:disabled) { background-color: #dadce0; }
+      .message {
+        margin-top: 15px;
+        padding: 10px;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .message.error { background-color: #fce8e6; color: #d93025; border: 1px solid #d93025; }
+      .message.success { background-color: #e6f4ea; color: #137333; border: 1px solid #137333; }
+      .message.loading { background-color: #e8f0fe; color: #1a73e8; border: 1px solid #1a73e8; }
+    </style>
+  </head>
+  <body>
+    <h3>Ajouter un nouvel agent</h3>
+
+    <label for="agentFullName">Nom complet de l'agent (Prénom NOM) :</label>
+    <input type="text" id="agentFullName" name="agentFullName" placeholder="Ex: Jean Dupont" required>
+    
+    <label for="agentSheetName">Nom de la feuille de l'agent (un seul mot, ex: Jean) :</label>
+    <input type="text" id="agentSheetName" name="agentSheetName" placeholder="Ex: Jean" required>
+
+    <label for="agentFirstNameForFile">Prénom pour le nom du fichier (Ex: Jean) :</label>
+    <input type="text" id="agentFirstNameForFile" name="agentFirstNameForFile" placeholder="Ex: Jean" required>
+
+    <label for="agentEmail">Adresse e-mail de l'agent :</label>
+    <input type="text" id="agentEmail" name="agentEmail" placeholder="Ex: jean.dupont@societe.com" required>
+
+    <div class="button-group">
+      <button class="secondary" id="cancelButton" onclick="google.script.run.closeDialog()">Annuler</button>
+      <button class="primary" id="addButton" onclick="submitAddAgentForm()">Ajouter l'agent</button>
+    </div>
+    
+    <div id="message" class="message" style="display: none;"></div>
+
+    <script>
+      function showMessage(type, text) {
+        const messageDiv = document.getElementById('message');
+        messageDiv.className = 'message ' + type;
+        messageDiv.innerText = text;
+        messageDiv.style.display = 'block';
+      }
+
+      function setButtonsState(disabled) {
+        document.getElementById('addButton').disabled = disabled;
+        document.getElementById('cancelButton').disabled = disabled;
+      }
+
+      function submitAddAgentForm() {
+        const agentFullName = document.getElementById('agentFullName').value.trim();
+        const agentSheetName = document.getElementById('agentSheetName').value.trim();
+        const agentFirstNameForFile = document.getElementById('agentFirstNameForFile').value.trim();
+        const agentEmail = document.getElementById('agentEmail').value.trim();
+
+        if (!agentFullName || !agentSheetName || !agentFirstNameForFile || !agentEmail) {
+          showMessage('error', 'Veuillez remplir tous les champs.');
+          return;
+        }
+        
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(agentEmail)) {
+            showMessage('error', 'Veuillez entrer une adresse e-mail valide.');
+            return;
+        }
+        
+        setButtonsState(true); 
+        showMessage('loading', 'Traitement en cours... Veuillez patienter.'); 
+
+        google.script.run
+          .withSuccessHandler(function(response) {
+            setButtonsState(false); 
+            if (response.success) {
+              showMessage('success', response.message);
+              setTimeout(google.script.host.close, 2000); 
+            } else {
+              showMessage('error', response.message);
+            }
+          })
+          .withFailureHandler(function(error) {
+            setButtonsState(false); 
+            showMessage('error', 'Erreur serveur: ' + error.message);
+          })
+          .processAddAgentForm(agentFullName, agentSheetName, agentFirstNameForFile, agentEmail); 
+      }
+    </script>
+  </body>
+</html>
