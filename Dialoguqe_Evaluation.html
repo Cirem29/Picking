@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: sans-serif; margin: 15px; background-color: #f8f9fa; color: #3c4043; }
+      h3 { color: #1a73e8; margin-bottom: 20px; }
+      label { display: block; margin-bottom: 8px; font-weight: 500; color: #5f6368; }
+      select, input[type="text"] {
+        width: calc(100% - 20px);
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #dadce0;
+        border-radius: 4px;
+        box-sizing: border-box;
+        font-size: 14px;
+        background-color: white;
+      }
+      select:focus, input[type="text"]:focus {
+        border-color: #1a73e8;
+        outline: none;
+        box-shadow: 0 0 0 1px #1a73e8;
+      }
+      .button-group { text-align: right; margin-top: 20px; }
+      button {
+        padding: 10px 20px;
+        margin-left: 10px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background-color 0.3s ease;
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      button.primary { background-color: #1a73e8; color: white; }
+      button.primary:hover:not(:disabled) { background-color: #174ea6; }
+      button.secondary { background-color: #e8eaed; color: #3c4043; }
+      button.secondary:hover:not(:disabled) { background-color: #dadce0; }
+      .message {
+        margin-top: 15px;
+        padding: 10px;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .message.error { background-color: #fce8e6; color: #d93025; border: 1px solid #d93025; }
+      .message.success { background-color: #e6f4ea; color: #137333; border: 1px solid #137333; }
+      .message.loading { background-color: #e8f0fe; color: #1a73e8; border: 1px solid #1a73e8; }
+    </style>
+  </head>
+  <body>
+    <h3>Enregistrer Évaluation</h3>
+
+    <label for="agentSelect">Sélectionnez l'agent à évaluer :</label>
+    <select id="agentSelect" name="agentSelect">
+      </select>
+
+    <label for="weekNumber">Numéro de la semaine :</label>
+    <input type="text" id="weekNumber" name="weekNumber" required>
+
+    <div class="button-group">
+      <button class="secondary" id="cancelButton" onclick="google.script.run.closeDialog()">Annuler</button>
+      <button class="primary" id="submitButton" onclick="submitEvaluationForm()">Enregistrer</button>
+    </div>
+
+    <div id="message" class="message" style="display: none;"></div>
+
+    <script>
+      // Fonctions utilitaires
+      function showMessage(type, text) {
+        const messageDiv = document.getElementById('message');
+        messageDiv.className = 'message ' + type;
+        messageDiv.innerText = text;
+        messageDiv.style.display = 'block';
+      }
+
+      function setButtonsState(disabled) {
+        document.getElementById('submitButton').disabled = disabled;
+        document.getElementById('cancelButton').disabled = disabled;
+      }
+
+      // Charger la liste des agents au chargement de la boîte de dialogue
+      window.onload = function() {
+        google.script.run
+          .withSuccessHandler(function(agents) {
+            const select = document.getElementById('agentSelect');
+            if (agents.length === 0) {
+              select.innerHTML = '<option value="">Aucun agent disponible</option>';
+              setButtonsState(true); // Désactive si pas d'agents
+              showMessage('error', 'Aucun agent trouvé pour l\'évaluation.');
+            } else {
+              select.innerHTML = '<option value="">-- Sélectionnez --</option>';
+              agents.forEach(function(agent) {
+                const option = document.createElement('option');
+                option.value = agent.sheetName; // Value sera le nom de la feuille
+                option.innerText = agent.fullName; // Texte affiché sera le nom complet
+                select.appendChild(option);
+              });
+            }
+          })
+          .withFailureHandler(function(error) {
+            showMessage('error', 'Erreur lors du chargement des agents: ' + error.message);
+            setButtonsState(true);
+          })
+          .getAgentsForEvaluationDropdown(); // Appelle la fonction GS pour obtenir la liste
+      };
+
+      function submitEvaluationForm() {
+        const agentSelect = document.getElementById('agentSelect');
+        const agentSheetName = agentSelect.value; // Ceci est le nom de la feuille (ex: "Test")
+        const weekNumber = document.getElementById('weekNumber').value.trim();
+
+        if (!agentSheetName) {
+          showMessage('error', 'Veuillez sélectionner un agent.');
+          return;
+        }
+        if (!weekNumber || isNaN(weekNumber)) {
+          showMessage('error', 'Veuillez entrer un numéro de semaine valide.');
+          return;
+        }
+
+        setButtonsState(true);
+        showMessage('loading', 'Enregistrement de l\'évaluation... Veuillez patienter.');
+
+        google.script.run
+          .withSuccessHandler(function(response) {
+            setButtonsState(false);
+            if (response.success) {
+              showMessage('success', response.message);
+              setTimeout(google.script.host.close, 2000);
+            } else {
+              showMessage('error', response.message);
+            }
+          })
+          .withFailureHandler(function(error) {
+            setButtonsState(false);
+            showMessage('error', 'Erreur serveur: ' + error.message);
+          })
+          .processEnregistrerEvaluationForm(agentSheetName, weekNumber); // Appel à la fonction GS
+      }
+    </script>
+  </body>
+</html>
