@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: sans-serif; margin: 15px; background-color: #f8f9fa; color: #3c4043; }
+      h3 { color: #d93025; margin-bottom: 20px; } 
+      label { display: block; margin-bottom: 8px; font-weight: 500; color: #5f6368; }
+      select {
+        width: calc(100% - 20px);
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #dadce0;
+        border-radius: 4px;
+        box-sizing: border-box;
+        font-size: 14px;
+        background-color: white;
+      }
+      select:focus {
+        border-color: #1a73e8;
+        outline: none;
+        box-shadow: 0 0 0 1px #1a73e8;
+      }
+      .button-group { text-align: right; margin-top: 20px; }
+      button {
+        padding: 10px 20px;
+        margin-left: 10px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background-color 0.3s ease;
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      button.primary { background-color: #d93025; color: white; } 
+      button.primary:hover:not(:disabled) { background-color: #b31412; }
+      button.secondary { background-color: #e8eaed; color: #3c4043; }
+      button.secondary:hover:not(:disabled) { background-color: #dadce0; }
+      .message {
+        margin-top: 15px;
+        padding: 10px;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .message.error { background-color: #fce8e6; color: #d93025; border: 1px solid #d93025; }
+      .message.success { background-color: #e6f4ea; color: #137333; border: 1px solid #137333; }
+      .message.loading { background-color: #fce8e6; color: #d93025; border: 1px solid #d93025; } 
+    </style>
+  </head>
+  <body>
+    <h3>Supprimer un agent</h3>
+
+    <label for="agentSelect">Sélectionnez l'agent à supprimer :</label>
+    <select id="agentSelect" name="agentSelect">
+      </select>
+
+    <div class="button-group">
+      <button class="secondary" id="cancelButton" onclick="google.script.run.closeDialog()">Annuler</button>
+      <button class="primary" id="removeButton" onclick="submitRemoveAgentForm()">Supprimer l'agent</button>
+    </div>
+    
+    <div id="message" class="message" style="display: none;"></div>
+
+    <script>
+      function showMessage(type, text) {
+        const messageDiv = document.getElementById('message');
+        messageDiv.className = 'message ' + type;
+        messageDiv.innerText = text;
+        messageDiv.style.display = 'block';
+      }
+
+      function setButtonsState(disabled) {
+        document.getElementById('removeButton').disabled = disabled;
+        document.getElementById('cancelButton').disabled = disabled;
+      }
+
+      window.onload = function() {
+        google.script.run
+          .withSuccessHandler(function(agents) {
+            const select = document.getElementById('agentSelect');
+            if (agents.length === 0) {
+              select.innerHTML = '<option value="">Aucun agent à supprimer</option>';
+              setButtonsState(true); 
+              showMessage('error', 'Aucun agent trouvé pour la suppression.');
+            } else {
+              select.innerHTML = '<option value="">-- Sélectionnez --</option>';
+              agents.forEach(function(agent) {
+                const option = document.createElement('option');
+                option.value = agent.fullName; 
+                option.innerText = agent.fullName;
+                select.appendChild(option);
+              });
+            }
+          })
+          .withFailureHandler(function(error) {
+            showMessage('error', 'Erreur lors du chargement des agents: ' + error.message);
+            setButtonsState(true);
+          })
+          .getAgentsListForRemoveDialog(); 
+      };
+
+      function submitRemoveAgentForm() {
+        const agentSelect = document.getElementById('agentSelect');
+        const agentFullName = agentSelect.value;
+
+        if (!agentFullName) {
+          showMessage('error', 'Veuillez sélectionner un agent.');
+          return;
+        }
+
+        const confirmDelete = confirm('Êtes-vous sûr de vouloir supprimer DÉFINITIVEMENT l\'agent "' + agentFullName + '" de la gestion ? Sa feuille centrale sera masquée et ses données effacées du Dashboard et Stats agents.');
+        if (!confirmDelete) {
+          return; 
+        }
+
+        setButtonsState(true);
+        showMessage('loading', 'Suppression en cours... Veuillez patienter.');
+
+        google.script.run
+          .withSuccessHandler(function(response) {
+            setButtonsState(false);
+            if (response.success) {
+              showMessage('success', response.message);
+              setTimeout(google.script.host.close, 2000);
+            } else {
+              showMessage('error', response.message);
+            }
+          })
+          .withFailureHandler(function(error) {
+            setButtonsState(false);
+            showMessage('error', 'Erreur serveur: ' + error.message);
+          })
+          .processRemoveAgentForm(agentFullName);
+      }
+    </script>
+  </body>
+</html>
