@@ -1,0 +1,175 @@
+// --- FONCTION POUR METTRE À JOUR LES WQ DANS LES FEUILLES D'AGENTS ---
+function mettreAJourWqAgents() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  var listAgentsSheet = ss.getSheetByName("Liste Agents");
+  var wqSourceSheet = ss.getSheetByName("WQ"); // Feuille source des WQ
+  
+  if (!listAgentsSheet) {
+    ui.alert("Erreur", "La feuille 'Liste Agents' est introuvable.", ui.ButtonSet.OK);
+    return;
+  }
+  if (!wqSourceSheet) {
+    ui.alert("Erreur", "La feuille 'WQ' est introuvable. Veuillez vous assurer qu'elle existe et est nommée 'WQ'.", ui.ButtonSet.OK);
+    return;
+  }
+
+  var agentList = listAgentsSheet.getRange(2, 1, listAgentsSheet.getLastRow() - 1, 4).getValues(); // Lire A,B,C,D (Nom feuille, Prénom Fichier, ID Fichier, Prénom NOM)
+
+  var wqSourceData = wqSourceSheet.getDataRange().getValues(); // Lire toutes les données de la feuille WQ
+  if (wqSourceData.length < 2) { // Au moins des en-têtes et 1 ligne de données
+    ui.alert("Avertissement", "La feuille 'WQ' est vide ou ne contient que les en-têtes. Aucune WQ à mettre à jour.", ui.ButtonSet.OK);
+    return;
+  }
+  var wqSourceHeaders = wqSourceData[0]; // En-têtes de la source WQ
+  var wqSourceActualData = wqSourceData.slice(1); // Données réelles (à partir de la ligne 2)
+
+  // Trouver les index de colonne dans la source WQ
+  // A = 0, B = 1, etc.
+  var srcColIdx = {
+    ID: wqSourceHeaders.indexOf('ID'),
+    CreatedTime: wqSourceHeaders.indexOf('Ems Creation Time'),
+    LogByAgent: wqSourceHeaders.indexOf('Log by Agent'),
+    ImpactedService: wqSourceHeaders.indexOf('Impacted Service'),
+    WQCode: wqSourceHeaders.indexOf('WQ Code'),
+    WQDetail: wqSourceHeaders.indexOf('WQ détail')
+  };
+
+  // Vérifier si toutes les colonnes nécessaires existent dans la source WQ
+  for (var key in srcColIdx) {
+    if (srcColIdx[key] === -1) {
+      ui.alert("Erreur", "Colonne source WQ '" + key + "' introuvable dans la feuille 'WQ'. Vérifiez les en-têtes.", ui.ButtonSet.OK);
+      return;
+    }
+  }
+
+  var updatedAgentsCount = 0;
+  var errors = [];
+
+for (var i = 0; i < agentList.length; i++) {
+    var agentSheetName = agentList[i][0]; 
+    var agentFullName = agentList[i][3]; // Ex: "Claudia ALVAREZ PARRA"
+
+    if (!agentSheetName || !agentFullName) {
+      Logger.log("Skipping agent row in Liste Agents due to missing sheet name or full name: %s", agentList[i]);
+      continue;
+    }
+
+    Logger.log("--- Traitement des WQ pour l'agent: %s (Feuille: %s) ---", agentFullName, agentSheetName);
+
+    try {
+      var agentCentralSheet = ss.getSheetByName(agentSheetName);
+      if (!agentCentralSheet) {
+        errors.push("Erreur: Feuille d'agent '" + agentSheetName + "' introuvable dans le classeur central.");
+        Logger.log("Erreur: Feuille d'agent '%s' manquante pour %s", agentSheetName, agentFullName);
+        continue;
+      }
+
+      // --- NOUVELLE LOGIQUE : Convertir "Prénom NOM" en "NOM, Prénom" pour le filtrage ---
+      var nameParts = agentFullName.split(' ');
+      var firstName = nameParts[0]; // Premier mot est le prénom (ex: "Claudia")
+      var lastName = nameParts.slice(1).join(' '); // Tous les mots suivants sont le nom de famille (ex: "ALVAREZ PARRA")
+      
+      var agentFullNameForFiltering = lastName + ", " + firstName; // Construit "ALVAREZ PARRA, Claudia"
+      
+      Logger.log("Format de filtrage WQ construit pour '%s': '%s'", agentFullName, agentFullNameForFiltering);
+
+      // --- 1. Filtrer les WQ de la source pour l'agent actuel ---
+      var agentWqsFromSource = wqSourceActualData.filter(row => 
+        row[srcColIdx.LogByAgent] && row[srcColIdx.LogByAgent].toString().trim().toLowerCase() === agentFullNameForFiltering.toLowerCase()
+      );
+      Logger.log("Nombre de WQ trouvées dans la source pour '%s': %s", agentFullName, agentWqsFromSource.length);
+
+      if (agentWqsFromSource.length === 0) {
+        Logger.log("Aucune WQ trouvée dans la source pour l'agent '%s'.", agentFullName);
+        updatedAgentsCount++; // Compter comme traité même si pas de WQ nouvelles
+        continue;
+      }
+
+      // ... (code inchangé jusqu'à la section "2. Lire les WQ existantes sur la feuille de l'agent") ...
+
+      // --- 2. Lire les WQ existantes sur la feuille de l'agent ---
+      // La section WQ commence en colonne S (19). Données à partir de la ligne 3.
+      // Assumer une plage maximale pour lire toutes les WQ existantes
+      // La plage est maintenant S3:Z
+      var agentWqRange = agentCentralSheet.getRange("S3:Z" + agentCentralSheet.getLastRow()); // <<< CHANGEMENT : S3:Z
+      var existingAgentWqs = agentWqRange.getValues();
+      
+      // Construire un set d'IDs de WQ existantes pour une recherche rapide
+      var existingWqIds = new Set();
+      var existingWqDataById = new Map(); 
+      // Index des colonnes WQ sur la feuille de l'agent (S=0, T=1, U=2, V=3, W=4, X=5, Y=6, Z=7)
+      // Les index RELATIFS DANS LE BLOC WQ ne changent pas.
+      var agentColIdx = {
+          ID: 0, // S
+          CreatedTime: 1, // T
+          ImpactedService: 2, // U
+          WrongQualificationCode: 3, // V
+          WQDetail: 4, // W
+          ValidationSupervision: 5, // X
+          VuEnPicking: 6, // Y
+          PointAmelioration: 7 // Z
+      };
+
+      for (var r = 0; r < existingAgentWqs.length; r++) {
+        var wqId = existingAgentWqs[r][agentColIdx.ID];
+        if (wqId) { 
+          existingWqIds.add(wqId.toString());
+          existingWqDataById.set(wqId.toString(), existingAgentWqs[r]);
+        }
+      }
+      Logger.log("Nombre de WQ existantes sur la feuille de l'agent '%s': %s", agentFullName, existingWqIds.size);
+
+      // --- 3. Préparer les nouvelles WQ à ajouter (seulement celles qui n'existent pas) ---
+      var newWqsToAdd = [];
+      for (var r = 0; r < agentWqsFromSource.length; r++) {
+        var sourceWqRow = agentWqsFromSource[r];
+        var wqId = sourceWqRow[srcColIdx.ID];
+
+        if (!existingWqIds.has(wqId.toString())) {
+          // C'est une nouvelle WQ à ajouter
+          var newRow = [];
+          newRow[agentColIdx.ID] = sourceWqRow[srcColIdx.ID];
+          newRow[agentColIdx.CreatedTime] = sourceWqRow[srcColIdx.CreatedTime]; 
+          newRow[agentColIdx.ImpactedService] = sourceWqRow[srcColIdx.ImpactedService]; 
+          newRow[agentColIdx.WrongQualificationCode] = sourceWqRow[srcColIdx.WQCode]; 
+          newRow[agentColIdx.WQDetail] = sourceWqRow[srcColIdx.WQDetail]; 
+          // Colonnes manuelles (X, Y, Z) seront vides pour les nouvelles WQ
+          newRow[agentColIdx.ValidationSupervision] = ""; 
+          newRow[agentColIdx.VuEnPicking] = ""; 
+          newRow[agentColIdx.PointAmelioration] = ""; 
+
+          newWqsToAdd.push(newRow);
+        }
+      }
+      Logger.log("Nombre de NOUVELLES WQ à ajouter pour '%s': %s", agentFullName, newWqsToAdd.length);
+
+      // --- 4. Ajouter les nouvelles WQ à la feuille de l'agent ---
+      if (newWqsToAdd.length > 0) {
+        var lastWqRow = agentCentralSheet.getRange("S:S").getValues().filter(String).length; // <<< CHANGEMENT : S:S
+        var startRowForNewWqs = Math.max(3, lastWqRow + 1); 
+
+        // Coller les nouvelles WQ. La colonne de départ est 19 (S).
+        agentCentralSheet.getRange(startRowForNewWqs, 19, newWqsToAdd.length, newWqsToAdd[0].length).setValues(newWqsToAdd); // <<< CHANGEMENT : 19
+        Logger.log("%s nouvelles WQ ajoutées à la feuille de l'agent '%s' à partir de la ligne %s.", newWqsToAdd.length, agentFullName, startRowForNewWqs);
+      } else {
+        Logger.log("Aucune nouvelle WQ à ajouter pour l'agent '%s'.", agentFullName);
+      }
+      
+      updatedAgentsCount++; 
+
+    } catch (e) {
+      errors.push("Erreur lors de la mise à jour des WQ pour l'agent '" + agentFullName + "': " + e.message);
+      Logger.log("Erreur inattendue pour l'agent '%s' lors de la mise à jour WQ: %s", agentFullName, e.message);
+    }
+  }
+
+  var msg = updatedAgentsCount + " agents mis à jour pour les WQ.";
+  if (errors.length > 0) {
+    msg += "\n\nErreurs rencontrées :\n" + errors.join("\n");
+  }
+  // Remplacer ui.alert par Logger.log pour les exécutions automatiques
+  Logger.log("Mise à jour WQ terminée: " + msg); 
+}
+
